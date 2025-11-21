@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sealed Pokémon Portfolio</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <nav class="container topnav">
+      <a href="#overview" id="nav-overview">Overview</a>
+      <a href="#items" id="nav-items">Items</a>
+    </nav>
+    <header class="container">
+      <h1>Sealed Pokémon Portfolio</h1>
+      <div class="toolbar">
+        <div class="summary">
+          <div><strong>Total Items:</strong> <span id="summary-items">0</span></div>
+          <div><strong>Invested:</strong> <span id="summary-invested">€0.00</span></div>
+          <div><strong>Estimated Value:</strong> <span id="summary-estimated">€0.00</span></div>
+          <div><strong>P/L:</strong> <span id="summary-pl">€0.00</span></div>
+        </div>
+        <div class="actions">
+          <button id="theme-toggle" title="Toggle light/dark">☀️ Light</button>
+          <label>
+            Currency:
+            <select id="currency-select">
+              <option value="EUR">EUR (€)</option>
+              <option value="USD">USD ($)</option>
+              <option value="GBP">GBP (£)</option>
+              <option value="CHF">CHF (CHF)</option>
+            </select>
+          </label>
+          <label>
+            Sort By:
+            <select id="sort-by">
+              <option value="name">Name</option>
+              <option value="purchaseDate">Purchase Date</option>
+              <option value="quantity">Quantity</option>
+              <option value="pricePaid">Price Paid (unit)</option>
+              <option value="marketPrice">Market Price (unit)</option>
+              <option value="invested">Invested (total)</option>
+              <option value="marketTotal">Market (total)</option>
+              <option value="pl">P/L (total)</option>
+            </select>
+          </label>
+          <label>
+            Order:
+            <select id="sort-dir">
+              <option value="asc">Asc</option>
+              <option value="desc">Desc</option>
+            </select>
+          </label>
+          <button id="refresh-btn" class="secondary" title="Refresh market data (30 min cooldown)">Refresh Prices</button>
+          <span id="refresh-status" style="font-size:12px;color:var(--muted);"></span>
+          <button id="export-btn" title="Export portfolio to JSON">Export</button>
+          <label class="import-label">
+            Import
+            <input type="file" id="import-input" accept="application/json" hidden />
+          </label>
+          <input id="search" type="search" placeholder="Search products..." />
+        </div>
+      </div>
+    </header>
+
+    <main class="container grid">
+      <section id="view-overview" class="card">
+        <h2>Overview</h2>
+        <p style="color: var(--muted); margin-top: 0;">Quick snapshot of your portfolio. Use the Items tab for full list, search, and sorting.</p>
+        <div class="form-row">
+          <label>Total Items
+            <input type="text" id="ov-items" readonly />
+          </label>
+          <label>Total Invested
+            <input type="text" id="ov-invested" readonly />
+          </label>
+          <label>Estimated Value
+            <input type="text" id="ov-estimated" readonly />
+          </label>
+        </div>
+        <div class="form-row">
+          <label>Profit / Loss
+            <input type="text" id="ov-pl" readonly />
+          </label>
+          <label>Average Paid / Item
+            <input type="text" id="ov-avg-paid" readonly />
+          </label>
+          <label>Average Market / Item
+            <input type="text" id="ov-avg-market" readonly />
+          </label>
+        </div>
+        <div class="charts">
+          <div class="chart">
+            <h3 class="chart-title">Portfolio Value Over Time</h3>
+            <canvas id="chart-line" height="200"></canvas>
+          </div>
+          <div class="chart">
+            <h3 class="chart-title">Top Holdings (Market Total)</h3>
+            <canvas id="chart-bar" height="200"></canvas>
+          </div>
+          <div class="chart">
+            <h3 class="chart-title">By Language (Market Value)</h3>
+            <canvas id="chart-donut" height="200"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-items" class="card">
+        <h2>Add / Edit Product</h2>
+        <form id="product-form">
+          <input type="hidden" id="product-id" />
+          <div class="form-row">
+            <label>Product Name
+              <input id="name" type="text" required placeholder="Start typing to search..." autocomplete="off" />
+              <div id="name-suggestions" class="suggestions hidden"></div>
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Language
+              <select id="language" required>
+                <option value="English">English</option>
+                <option value="German">German</option>
+                <option value="French">French</option>
+                <option value="Spanish">Spanish</option>
+                <option value="Italian">Italian</option>
+                <option value="Japanese">Japanese</option>
+                <option value="Chinese">Chinese</option>
+                <option value="Korean">Korean</option>
+                <option value="Portuguese">Portuguese</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
+            <label>Purchase Date
+              <input id="purchaseDate" type="date" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>Quantity
+              <input id="quantity" type="number" min="1" step="1" value="1" required />
+            </label>
+            <label>Price Paid / Unit
+              <input id="pricePaid" type="number" min="0" step="0.01" placeholder="0.00" required />
+            </label>
+            <div></div>
+          </div>
+          <input type="hidden" id="apiId" />
+          <input type="hidden" id="imageUrl" />
+          <input type="hidden" id="marketPriceApi" />
+          <input type="hidden" id="cardmarketUrl" />
+          <div class="form-actions">
+            <button type="submit" id="save-btn">Save Product</button>
+            <button type="button" id="reset-btn" class="secondary">Reset</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="view-items-table" class="card">
+        <h2>Portfolio</h2>
+        <div class="table-wrapper">
+          <table id="portfolio-table">
+            <thead>
+              <tr>
+                <th>Image</th>
+                <th>Name</th>
+                <th>Language</th>
+                <th>Qty</th>
+                <th>Paid/unit</th>
+                <th>Paid total</th>
+                <th>Market/unit</th>
+                <th>Market total</th>
+                <th>P/L</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="portfolio-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="image-modal" class="modal hidden">
+      <div class="modal-content">
+        <button class="modal-close" id="modal-close">×</button>
+        <img id="modal-image" alt="Product image" />
+      </div>
+    </div>
+
+    <footer class="container footer">
+      <small>
+        Tip: images are compressed locally to save space. Future version will fetch market prices from Cardmarket.
+      </small>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+  </html>
