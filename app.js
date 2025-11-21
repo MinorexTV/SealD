@@ -5,6 +5,8 @@
 const STORAGE_KEY = "sealedPokemonPortfolio:v1";
 const SETTINGS_KEY = "sealedPokemonPortfolio:settings";
 const CACHE_KEY = "sealedPokemonPortfolio:apiCache:v1";
+const SEARCH_CACHE_KEY = "sealedPokemonPortfolio:searchCache:v1";
+const SEARCH_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
 
 // Hosted proxy on Render (Cardmarket/RapidAPI keys live there)
 const REMOTE_API_PROXY = "https://seald-server.onrender.com";
@@ -79,6 +81,13 @@ function saveCache(cache) {
   localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
 }
 
+function loadSearchCache() {
+  try { return JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY)) || {}; } catch { return {}; }
+}
+function saveSearchCache(cache) {
+  localStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(cache));
+}
+
 function applyTheme(theme) {
   const t = theme === "light" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", t);
@@ -116,6 +125,12 @@ function extractArray(data) {
 
 async function apiSearchProducts(q, limit = 10) {
   if (!q || q.length < 3) return [];
+  const key = q.toLowerCase();
+  const cache = loadSearchCache();
+  const entry = cache[key];
+  const fresh = entry && (Date.now() - (entry.ts || 0) < SEARCH_CACHE_TTL_MS);
+  if (fresh && Array.isArray(entry.results)) return entry.results;
+
   const url = `${API_PROXY_BASE}/api/products/search?q=${encodeURIComponent(q)}&limit=${limit}`;
   try {
     const resp = await fetch(url);
@@ -124,7 +139,16 @@ async function apiSearchProducts(q, limit = 10) {
       return [];
     }
     const data = await resp.json();
-    return extractArray(data);
+    const arr = extractArray(data);
+    cache[key] = { ts: Date.now(), results: arr };
+    const keys = Object.keys(cache);
+    if (keys.length > 40) {
+      // Drop stalest entries to control localStorage size
+      keys.sort((a, b) => (cache[a].ts || 0) - (cache[b].ts || 0));
+      for (let i = 0; i < keys.length - 40; i++) delete cache[keys[i]];
+    }
+    saveSearchCache(cache);
+    return arr;
   } catch (err) {
     console.error("Search request error", err);
     return [];
@@ -444,7 +468,9 @@ async function main() {
 
   // Suggestions under Name input
   const nameInput = $("#name");
+  const nameSearchBtn = $("#name-search-btn");
   const sugEl = $("#name-suggestions");
+  let lastSuggestions = [];
   const hideSuggestions = () => { sugEl.classList.add("hidden"); sugEl.innerHTML = ""; };
   const showSuggestions = (items) => {
     if (!items || !items.length) { hideSuggestions(); return; }
@@ -461,18 +487,31 @@ async function main() {
     }).join("");
     sugEl.classList.remove("hidden");
   };
-  const handleSuggest = debounce(async () => {
+  const handleSuggest = async () => {
     const q = nameInput.value.trim();
     if (q.length < 3) { hideSuggestions(); return; }
     try {
+      if (nameSearchBtn) nameSearchBtn.disabled = true;
       const results = await apiSearchProducts(q, 10);
+      lastSuggestions = results;
       showSuggestions(results);
-    } catch { hideSuggestions(); }
-  }, 450);
-  nameInput.addEventListener("input", handleSuggest);
-  nameInput.addEventListener("focus", handleSuggest);
+    } catch {
+      hideSuggestions();
+    } finally {
+      if (nameSearchBtn) nameSearchBtn.disabled = false;
+    }
+  };
+  if (nameSearchBtn) nameSearchBtn.addEventListener("click", handleSuggest);
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSuggest();
+    }
+  });
   $("#language").addEventListener("change", () => {
-    if (!sugEl.classList.contains("hidden")) handleSuggest();
+    if (!sugEl.classList.contains("hidden") && lastSuggestions.length) {
+      showSuggestions(lastSuggestions);
+    }
   });
   document.addEventListener("click", (e) => {
     if (!sugEl.contains(e.target) && e.target !== nameInput) hideSuggestions();

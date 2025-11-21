@@ -111,7 +111,10 @@
           <input type="hidden" id="product-id" />
           <div class="form-row">
             <label>Product Name
-              <input id="name" type="text" required placeholder="Start typing to search..." autocomplete="off" />
+              <div class="input-with-button">
+                <input id="name" type="text" required placeholder="Type name, then click Search" autocomplete="off" />
+                <button type="button" id="name-search-btn" class="secondary">Search</button>
+              </div>
               <div id="name-suggestions" class="suggestions hidden"></div>
             </label>
           </div>
