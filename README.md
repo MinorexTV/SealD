@@ -36,10 +36,10 @@ Privacy
 
 Development
 - This project is plain HTML/CSS/JS; there is no build step.
-- Open `index.html` to run.
+- Open `index.html` to run. It will call the hosted proxy on Render at `https://seald-server.onrender.com` for Cardmarket prices. If you want to use a local proxy during development, launch it and add `?api=local` to the page URL (or `?apiBase=http://localhost:3000` for a custom base).
 
 Backend Proxy (RapidAPI)
-- A small proxy is included under `server/` to hide your API key and avoid CORS issues.
+- A small proxy is included under `SealD-Server/` to hide your API key and avoid CORS issues.
   - Copy `server/.env.example` to `server/.env` and set `RAPIDAPI_KEY` (do NOT commit your real key).
   - Adjust `API_BASE`, `RAPIDAPI_HOST`, and the endpoint paths to match your API (e.g., sealed products search).
   - Install and run:

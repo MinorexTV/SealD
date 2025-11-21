@@ -5,7 +5,20 @@
 const STORAGE_KEY = "sealedPokemonPortfolio:v1";
 const SETTINGS_KEY = "sealedPokemonPortfolio:settings";
 const CACHE_KEY = "sealedPokemonPortfolio:apiCache:v1";
-const API_PROXY_BASE = "http://localhost:3000"; // backend proxy base
+
+// Hosted proxy on Render (Cardmarket/RapidAPI keys live there)
+const REMOTE_API_PROXY = "https://seald-server.onrender.com";
+const LOCAL_API_PROXY = "http://localhost:3000";
+const API_PROXY_BASE = (() => {
+  // Optional override via query params for testing: ?api=local, ?api=remote, or ?apiBase=http://custom
+  const params = new URLSearchParams(window.location.search);
+  const explicitBase = params.get("apiBase");
+  if (explicitBase) return explicitBase;
+  const mode = (params.get("api") || "").toLowerCase();
+  if (mode === "local") return LOCAL_API_PROXY;
+  if (mode === "remote" || mode === "render" || mode === "hosted") return REMOTE_API_PROXY;
+  return REMOTE_API_PROXY; // default to hosted proxy
+})();
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
