@@ -135,12 +135,28 @@ async function apiSearchProducts(q, limit = 10, opts = {}) {
   const url = `${API_PROXY_BASE}/api/products/search?q=${encodeURIComponent(q)}&limit=${limit}`;
   try {
     const resp = await fetch(url);
+    if (resp.status === 429) {
+      const err = new Error('quota_exhausted');
+      err.exhausted = true;
+      throw err;
+    }
     if (!resp.ok) {
+      if (resp.status === 429) {
+        const err = new Error('quota_exhausted');
+        err.exhausted = true;
+        throw err;
+      }
       console.error("Search request failed", resp.status, resp.statusText);
       if (allowStaleOnFail && entry && Array.isArray(entry.results)) return entry.results;
       return [];
     }
     const data = await resp.json();
+    // Some APIs return 200 with an error payload; surface exhaustion if present
+    if (data && typeof data === 'object' && data.error && /quota/i.test(data.error)) {
+      const err = new Error('quota_exhausted');
+      err.exhausted = true;
+      throw err;
+    }
     const arr = extractArray(data);
     cache[key] = { ts: Date.now(), results: arr };
     const keys = Object.keys(cache);
@@ -153,6 +169,11 @@ async function apiSearchProducts(q, limit = 10, opts = {}) {
     return arr;
   } catch (err) {
     console.error("Search request error", err);
+    if (err && err.exhausted) {
+      // bubble up exhausted to show UI message; optionally attach stale results
+      if (entry && Array.isArray(entry.results)) err.staleResults = entry.results;
+      throw err;
+    }
     if (allowStaleOnFail && entry && Array.isArray(entry.results)) return entry.results;
     return [];
   }
@@ -507,9 +528,19 @@ async function main() {
       lastSuggestions = results;
       showSuggestions(results);
       setSearchStatus(results.length ? "" : "No results");
-    } catch {
-      hideSuggestions();
-      setSearchStatus("Search failed", true);
+    } catch (err) {
+      if (err && err.exhausted) {
+        if (err.staleResults && err.staleResults.length) {
+          lastSuggestions = err.staleResults;
+          showSuggestions(err.staleResults);
+        } else {
+          hideSuggestions();
+        }
+        setSearchStatus("API exhausted", true);
+      } else {
+        hideSuggestions();
+        setSearchStatus("Search failed", true);
+      }
     } finally {
       if (nameSearchBtn) nameSearchBtn.disabled = false;
     }
