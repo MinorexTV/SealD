@@ -7,6 +7,8 @@ const SETTINGS_KEY = "sealedPokemonPortfolio:settings";
 const CACHE_KEY = "sealedPokemonPortfolio:apiCache:v1";
 const SEARCH_CACHE_KEY = "sealedPokemonPortfolio:searchCache:v1";
 const SEARCH_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
+const AUTH_TOKEN_KEY = "sealedPokemonPortfolio:authToken";
+const AUTH_EMAIL_KEY = "sealedPokemonPortfolio:authEmail";
 
 // Hosted proxy on Render (Cardmarket/RapidAPI keys live there)
 const REMOTE_API_PROXY = "https://seald-server.onrender.com";
@@ -106,6 +108,20 @@ function debounce(fn, delay = 400) {
   };
 }
 
+function loadAuth() {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  const email = localStorage.getItem(AUTH_EMAIL_KEY);
+  return token ? { token, email: email || "" } : null;
+}
+function saveAuth(token, email) {
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+  if (email) localStorage.setItem(AUTH_EMAIL_KEY, email);
+}
+function clearAuth() {
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_EMAIL_KEY);
+}
+
 function extractArray(data) {
   if (Array.isArray(data)) return data;
   const keys = ["results", "data", "list", "items", "products", "cards"];
@@ -203,6 +219,32 @@ async function fetchProductDetailById(id) {
   try { return await resp.json(); } catch { return null; }
 }
 
+function authHeaders(token) {
+  const h = { 'Content-Type': 'application/json' };
+  if (token) h['Authorization'] = `Bearer ${token}`;
+  return h;
+}
+
+async function fetchUserDataRemote(token) {
+  if (!token) return null;
+  const resp = await fetch(`${API_PROXY_BASE}/api/user/data`, { headers: authHeaders(token) });
+  if (resp.status === 401) throw new Error('auth');
+  if (!resp.ok) throw new Error('fetch_user_failed');
+  return resp.json();
+}
+
+async function syncUserData(token, items, settings) {
+  if (!token) return;
+  const resp = await fetch(`${API_PROXY_BASE}/api/user/data`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ items, settings })
+  });
+  if (resp.status === 401) throw new Error('auth');
+  if (!resp.ok) throw new Error('sync_failed');
+  return resp.json();
+}
+
 function canRefreshPrices(settings, cooldownMs = 30 * 60 * 1000) {
   const last = settings.lastRefreshAt ? Number(settings.lastRefreshAt) : 0;
   const now = Date.now();
@@ -213,6 +255,53 @@ function canRefreshPrices(settings, cooldownMs = 30 * 60 * 1000) {
 function formatRemaining(ms) {
   const m = Math.ceil(ms / 60000);
   return m <= 1 ? '1 min' : `${m} mins`;
+}
+
+let authState = null; // { token, email }
+
+function setAuthUI(status, opts = {}) {
+  const emailInput = $("#auth-email");
+  const passwordInput = $("#auth-password");
+  const loginBtn = $("#auth-login-btn");
+  const signupBtn = $("#auth-signup-btn");
+  const logoutBtn = $("#auth-logout-btn");
+  const statusEl = $("#auth-status");
+  if (statusEl) {
+    statusEl.textContent = status || "";
+    statusEl.classList.toggle("error", Boolean(opts.error));
+    statusEl.classList.toggle("success", Boolean(opts.success));
+  }
+  const loggedIn = Boolean(authState && authState.token);
+  if (logoutBtn) logoutBtn.classList.toggle("hidden", !loggedIn);
+  if (loginBtn) loginBtn.classList.toggle("hidden", loggedIn);
+  if (signupBtn) signupBtn.classList.toggle("hidden", loggedIn);
+  if (emailInput) {
+    emailInput.value = loggedIn ? (authState.email || "") : (emailInput.value || "");
+    emailInput.disabled = loggedIn;
+  }
+  if (passwordInput) {
+    passwordInput.value = "";
+    passwordInput.disabled = loggedIn;
+  }
+}
+
+function applySavedAuth() {
+  const saved = loadAuth();
+  if (saved) {
+    authState = saved;
+    setAuthUI(`Logged in as ${authState.email || 'user'}`, { success: true });
+  } else {
+    authState = null;
+    setAuthUI("");
+  }
+}
+
+async function handleLogout(items, settings) {
+  clearAuth();
+  authState = null;
+  setAuthUI("Logged out");
+  // Keep local data; user can continue offline
+  render(items, settings, $("#search").value.trim());
 }
 
 // Image compression via canvas to keep localStorage small
@@ -365,22 +454,126 @@ async function main() {
   let settings = loadSettings();
   let items = loadData();
 
+  applySavedAuth();
+
+  async function pullUserData() {
+    if (!authState || !authState.token) return;
+    try {
+      setAuthUI("Syncing data...", { success: true });
+      const data = await fetchUserDataRemote(authState.token);
+      if (data) {
+        if (Array.isArray(data.items)) items = data.items;
+        if (data.settings && typeof data.settings === 'object') settings = { ...settings, ...data.settings };
+        saveData(items);
+        saveSettings(settings);
+        render(items, settings, $("#search").value.trim());
+        setAuthUI(`Synced as ${authState.email}`, { success: true });
+      }
+    } catch (err) {
+      if (err.message === 'auth') {
+        await handleLogout(items, settings);
+        setAuthUI("Session expired, please log in", { error: true });
+      } else {
+        setAuthUI("Failed to sync user data", { error: true });
+      }
+    }
+  }
+
+  async function pushUserData() {
+    if (!authState || !authState.token) return;
+    try {
+      await syncUserData(authState.token, items, settings);
+      setAuthUI(`Synced as ${authState.email}`, { success: true });
+    } catch (err) {
+      if (err.message === 'auth') {
+        await handleLogout(items, settings);
+        setAuthUI("Session expired, please log in", { error: true });
+      } else {
+        setAuthUI("Sync failed", { error: true });
+      }
+    }
+  }
+
+  // Auth buttons
+  const loginBtn = $("#auth-login-btn");
+  const signupBtn = $("#auth-signup-btn");
+  const logoutBtn = $("#auth-logout-btn");
+  if (loginBtn) loginBtn.addEventListener("click", async () => {
+    const email = $("#auth-email").value.trim().toLowerCase();
+    const password = $("#auth-password").value;
+    if (!email || !password) return setAuthUI("Email and password required", { error: true });
+    try {
+      setAuthUI("Logging in...");
+      const resp = await fetch(`${API_PROXY_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await resp.json();
+      if (!resp.ok) return setAuthUI(data.error || "Login failed", { error: true });
+      authState = { token: data.token, email: data.user?.email || email };
+      saveAuth(authState.token, authState.email);
+      setAuthUI(`Logged in as ${authState.email}`, { success: true });
+      if (data.user) {
+        items = Array.isArray(data.user.items) ? data.user.items : items;
+        settings = data.user.settings && typeof data.user.settings === 'object' ? { ...settings, ...data.user.settings } : settings;
+        saveData(items);
+        saveSettings(settings);
+        render(items, settings, $("#search").value.trim());
+      } else {
+        await pullUserData();
+      }
+    } catch {
+      setAuthUI("Login failed", { error: true });
+    }
+  });
+  if (signupBtn) signupBtn.addEventListener("click", async () => {
+    const email = $("#auth-email").value.trim().toLowerCase();
+    const password = $("#auth-password").value;
+    if (!email || !password || password.length < 6) return setAuthUI("Use a password of at least 6 characters", { error: true });
+    try {
+      setAuthUI("Signing up...");
+      const resp = await fetch(`${API_PROXY_BASE}/auth/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await resp.json();
+      if (!resp.ok) return setAuthUI(data.error || "Signup failed", { error: true });
+      authState = { token: data.token, email: data.user?.email || email };
+      saveAuth(authState.token, authState.email);
+      setAuthUI(`Account created for ${authState.email}`, { success: true });
+      items = Array.isArray(data.user.items) ? data.user.items : [];
+      settings = data.user.settings && typeof data.user.settings === 'object' ? { ...settings, ...data.user.settings } : settings;
+      saveData(items);
+      saveSettings(settings);
+      render(items, settings, $("#search").value.trim());
+    } catch {
+      setAuthUI("Signup failed", { error: true });
+    }
+  });
+  if (logoutBtn) logoutBtn.addEventListener("click", async () => {
+    await handleLogout(items, settings);
+  });
+
   // Init currency select
   const currencySelect = $("#currency-select");
   currencySelect.value = settings.currency || "EUR";
-  currencySelect.addEventListener("change", () => {
+  currencySelect.addEventListener("change", async () => {
     settings.currency = currencySelect.value;
     saveSettings(settings);
+    await pushUserData();
     render(items, settings, $("#search").value.trim());
   });
 
   // Init theme
   applyTheme(settings.theme);
   const themeToggle = $("#theme-toggle");
-  themeToggle.addEventListener("click", () => {
+  themeToggle.addEventListener("click", async () => {
     settings.theme = settings.theme === "light" ? "dark" : "light";
     saveSettings(settings);
     applyTheme(settings.theme);
+    await pushUserData();
   });
 
   // Render initial
@@ -403,10 +596,11 @@ async function main() {
       return;
     }
     refreshBtn.disabled = true;
-    refreshStatus.textContent = 'Refreshing…';
+    refreshStatus.textContent = 'Refreshing...';
     await refreshAllMarketData(items);
     settings.lastRefreshAt = Date.now();
     saveSettings(settings);
+    await pushUserData();
     updateRefreshUI();
     render(items, settings, $("#search").value.trim());
   });
@@ -484,6 +678,7 @@ async function main() {
 
     if (existingIndex >= 0) items[existingIndex] = product; else items.push(product);
     saveData(items);
+    await pushUserData();
     render(items, settings, $("#search").value.trim());
     resetForm();
   });
@@ -578,7 +773,7 @@ async function main() {
   });
 
   // Table actions
-  $("#portfolio-body").addEventListener("click", (e) => {
+  $("#portfolio-body").addEventListener("click", async (e) => {
     const target = e.target;
     if (target.matches("img.thumb")) {
       const src = target.getAttribute("data-img");
@@ -597,6 +792,7 @@ async function main() {
         if (confirm("Delete this product?")) {
           items = items.filter((x) => x.id !== id);
           saveData(items);
+          await pushUserData();
           render(items, settings, $("#search").value.trim());
         }
       }
@@ -647,6 +843,7 @@ async function main() {
       $("#currency-select").value = settings.currency;
       applyTheme(settings.theme);
       render(items, settings, $("#search").value.trim());
+      await pushUserData();
       e.target.value = "";
     } catch (err) {
       alert("Invalid file format");
@@ -663,14 +860,16 @@ async function main() {
   const sortDirSel = document.getElementById("sort-dir");
   sortBySel.value = settings.sortBy || "name";
   sortDirSel.value = settings.sortDir || "asc";
-  sortBySel.addEventListener("change", () => {
+  sortBySel.addEventListener("change", async () => {
     settings.sortBy = sortBySel.value;
     saveSettings(settings);
+    await pushUserData();
     render(items, settings, $("#search").value.trim());
   });
-  sortDirSel.addEventListener("change", () => {
+  sortDirSel.addEventListener("change", async () => {
     settings.sortDir = sortDirSel.value;
     saveSettings(settings);
+    await pushUserData();
     render(items, settings, $("#search").value.trim());
   });
 
@@ -695,6 +894,10 @@ async function main() {
   }
   window.addEventListener("hashchange", () => { applyRoute(); });
   applyRoute();
+
+  if (authState && authState.token) {
+    await pullUserData();
+  }
 }
 
 document.addEventListener("DOMContentLoaded", main);

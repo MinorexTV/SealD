@@ -37,6 +37,7 @@ Privacy
 Development
 - This project is plain HTML/CSS/JS; there is no build step.
 - Open `index.html` to run. It will call the hosted proxy on Render at `https://seald-server.onrender.com` for Cardmarket prices. If you want to use a local proxy during development, launch it and add `?api=local` to the page URL (or `?apiBase=http://localhost:3000` for a custom base).
+- You can now sign up / log in (email + password) to sync your portfolio across devices. The backend stores your items/settings server-side. After logging in, all item changes auto-sync; logout keeps your data locally.
 
 Backend Proxy (RapidAPI)
 - A small proxy is included under `SealD-Server/` to hide your API key and avoid CORS issues.

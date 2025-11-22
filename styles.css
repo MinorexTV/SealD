@@ -99,6 +99,7 @@ label.file input[type="file"] { padding: 6px; }
 .suggestion-title { color: var(--text); font-size: 14px; }
 .suggestion-sub { color: var(--muted); font-size: 12px; display: flex; gap: 8px; align-items: center; }
 .badge-price { color: var(--success); font-weight: 600; }
+.hidden { display: none !important; }
 
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
@@ -116,6 +117,14 @@ label.file input[type="file"] { padding: 6px; }
 .input-with-button { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .search-status { margin-top: 6px; font-size: 12px; color: var(--muted); min-height: 14px; }
 .search-status.error { color: #ff9f9f; } /* light red for exhausted/error */
+
+.auth-box { margin-top: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); }
+.auth-row { display: grid; grid-template-columns: repeat(5, auto); gap: 8px; align-items: center; }
+.auth-row input { min-width: 160px; }
+@media (max-width: 900px) { .auth-row { grid-template-columns: 1fr 1fr; } }
+.auth-status { margin-top: 6px; font-size: 12px; color: var(--muted); min-height: 14px; }
+.auth-status.error { color: var(--danger); }
+.auth-status.success { color: var(--success); }
 
 .charts { display: grid; grid-template-columns: 1fr; gap: 18px; margin-top: 8px; }
 .chart-title { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
