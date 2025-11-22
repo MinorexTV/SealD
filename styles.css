@@ -114,6 +114,8 @@ label.file input[type="file"] { padding: 6px; }
 @media (max-width: 900px) { .form-row { grid-template-columns: 1fr; } }
 .form-actions { display: flex; gap: 10px; }
 .input-with-button { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.search-status { margin-top: 6px; font-size: 12px; color: var(--muted); min-height: 14px; }
+.search-status.error { color: var(--danger); }
 
 .charts { display: grid; grid-template-columns: 1fr; gap: 18px; margin-top: 8px; }
 .chart-title { margin: 0 0 8px; color: var(--muted); font-size: 14px; }

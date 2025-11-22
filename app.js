@@ -123,8 +123,9 @@ function extractArray(data) {
   return [];
 }
 
-async function apiSearchProducts(q, limit = 10) {
+async function apiSearchProducts(q, limit = 10, opts = {}) {
   if (!q || q.length < 3) return [];
+  const { allowStaleOnFail = true } = opts;
   const key = q.toLowerCase();
   const cache = loadSearchCache();
   const entry = cache[key];
@@ -136,6 +137,7 @@ async function apiSearchProducts(q, limit = 10) {
     const resp = await fetch(url);
     if (!resp.ok) {
       console.error("Search request failed", resp.status, resp.statusText);
+      if (allowStaleOnFail && entry && Array.isArray(entry.results)) return entry.results;
       return [];
     }
     const data = await resp.json();
@@ -151,6 +153,7 @@ async function apiSearchProducts(q, limit = 10) {
     return arr;
   } catch (err) {
     console.error("Search request error", err);
+    if (allowStaleOnFail && entry && Array.isArray(entry.results)) return entry.results;
     return [];
   }
 }
@@ -401,6 +404,7 @@ async function main() {
     const notes = "";
     let apiId = $("#apiId").value.trim();
     let imageUrl = $("#imageUrl").value.trim();
+    let cardmarketUrl = $("#cardmarketUrl").value.trim();
     const file = null;
 
     let imageDataUrl = null;
@@ -469,8 +473,14 @@ async function main() {
   // Suggestions under Name input
   const nameInput = $("#name");
   const nameSearchBtn = $("#name-search-btn");
+  const nameSearchStatus = $("#name-search-status");
   const sugEl = $("#name-suggestions");
   let lastSuggestions = [];
+  const setSearchStatus = (msg = "", isError = false) => {
+    if (!nameSearchStatus) return;
+    nameSearchStatus.textContent = msg;
+    nameSearchStatus.classList.toggle("error", Boolean(isError));
+  };
   const hideSuggestions = () => { sugEl.classList.add("hidden"); sugEl.innerHTML = ""; };
   const showSuggestions = (items) => {
     if (!items || !items.length) { hideSuggestions(); return; }
@@ -489,14 +499,17 @@ async function main() {
   };
   const handleSuggest = async () => {
     const q = nameInput.value.trim();
-    if (q.length < 3) { hideSuggestions(); return; }
+    if (q.length < 3) { hideSuggestions(); setSearchStatus("Type at least 3 characters"); return; }
     try {
       if (nameSearchBtn) nameSearchBtn.disabled = true;
-      const results = await apiSearchProducts(q, 10);
+      setSearchStatus("Searching...");
+      const results = await apiSearchProducts(q, 10, { allowStaleOnFail: true });
       lastSuggestions = results;
       showSuggestions(results);
+      setSearchStatus(results.length ? "" : "No results");
     } catch {
       hideSuggestions();
+      setSearchStatus("Search failed", true);
     } finally {
       if (nameSearchBtn) nameSearchBtn.disabled = false;
     }
@@ -514,7 +527,8 @@ async function main() {
     }
   });
   document.addEventListener("click", (e) => {
-    if (!sugEl.contains(e.target) && e.target !== nameInput) hideSuggestions();
+    const tgt = e.target;
+    if (!sugEl.contains(tgt) && tgt !== nameInput && tgt !== nameSearchBtn) hideSuggestions();
   });
   sugEl.addEventListener("click", (e) => {
     const item = e.target.closest('.suggestion-item');
