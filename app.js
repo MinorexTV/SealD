@@ -268,8 +268,9 @@ function setAuthUI(status, opts = {}) {
   const statusEl = $("#auth-status");
   if (statusEl) {
     statusEl.textContent = status || "";
-    statusEl.classList.toggle("error", Boolean(opts.error));
-    statusEl.classList.toggle("success", Boolean(opts.success));
+    statusEl.classList.remove("error", "success");
+    if (opts.error) statusEl.classList.add("error");
+    if (opts.success) statusEl.classList.add("success");
   }
   const loggedIn = Boolean(authState && authState.token);
   if (logoutBtn) logoutBtn.classList.toggle("hidden", !loggedIn);
@@ -300,7 +301,15 @@ async function handleLogout(items, settings) {
   clearAuth();
   authState = null;
   setAuthUI("Logged out");
-  // Keep local data; user can continue offline
+  // Clear local data to avoid mixing accounts
+  items.length = 0;
+  settings.currency = "EUR";
+  settings.theme = "dark";
+  settings.sortBy = "name";
+  settings.sortDir = "asc";
+  saveData(items);
+  saveSettings(settings);
+  applyTheme(settings.theme);
   render(items, settings, $("#search").value.trim());
 }
 
@@ -498,35 +507,52 @@ async function main() {
   const loginBtn = $("#auth-login-btn");
   const signupBtn = $("#auth-signup-btn");
   const logoutBtn = $("#auth-logout-btn");
-  if (loginBtn) loginBtn.addEventListener("click", async () => {
+  async function performLogin() {
     const email = $("#auth-email").value.trim().toLowerCase();
     const password = $("#auth-password").value;
     if (!email || !password) return setAuthUI("Email and password required", { error: true });
+    setAuthUI("Logging in...");
+    let data;
     try {
-      setAuthUI("Logging in...");
       const resp = await fetch(`${API_PROXY_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })
       });
-      const data = await resp.json();
-      if (!resp.ok) return setAuthUI(data.error || "Login failed", { error: true });
-      authState = { token: data.token, email: data.user?.email || email };
-      saveAuth(authState.token, authState.email);
-      setAuthUI(`Logged in as ${authState.email}`, { success: true });
-      if (data.user) {
-        items = Array.isArray(data.user.items) ? data.user.items : items;
-        settings = data.user.settings && typeof data.user.settings === 'object' ? { ...settings, ...data.user.settings } : settings;
-        saveData(items);
-        saveSettings(settings);
-        render(items, settings, $("#search").value.trim());
-      } else {
-        await pullUserData();
+      data = await resp.json();
+      if (!resp.ok) {
+        return setAuthUI(data.error || "Login failed", { error: true });
       }
-    } catch {
-      setAuthUI("Login failed", { error: true });
+    } catch (err) {
+      console.error("Login error", err);
+      return setAuthUI("Login failed", { error: true });
     }
-  });
+
+    authState = { token: data.token, email: (data.user && data.user.email) || email };
+    saveAuth(authState.token, authState.email);
+    setAuthUI(`Logged in as ${authState.email}`, { success: true });
+
+    // Apply user data; fallback to empty arrays/objects
+    items = (data.user && Array.isArray(data.user.items)) ? data.user.items : [];
+    if (data.user && data.user.settings && typeof data.user.settings === 'object') {
+      settings = { ...settings, ...data.user.settings };
+    }
+    saveData(items);
+    saveSettings(settings);
+    applyTheme(settings.theme);
+    render(items, settings, $("#search").value.trim());
+  }
+
+  if (loginBtn) loginBtn.addEventListener("click", performLogin);
+  const passwordInput = $("#auth-password");
+  if (passwordInput) {
+    passwordInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        performLogin();
+      }
+    });
+  }
   if (signupBtn) signupBtn.addEventListener("click", async () => {
     const email = $("#auth-email").value.trim().toLowerCase();
     const password = $("#auth-password").value;
@@ -539,14 +565,20 @@ async function main() {
         body: JSON.stringify({ email, password })
       });
       const data = await resp.json();
-      if (!resp.ok) return setAuthUI(data.error || "Signup failed", { error: true });
+      if (!resp.ok) {
+        const msg = data && data.error ? data.error : (resp.status === 409 ? "User already exists" : "Signup failed");
+        return setAuthUI(msg, { error: true });
+      }
       authState = { token: data.token, email: data.user?.email || email };
       saveAuth(authState.token, authState.email);
       setAuthUI(`Account created for ${authState.email}`, { success: true });
       items = Array.isArray(data.user.items) ? data.user.items : [];
-      settings = data.user.settings && typeof data.user.settings === 'object' ? { ...settings, ...data.user.settings } : settings;
+      if (data.user.settings && typeof data.user.settings === 'object') {
+        settings = { ...settings, ...data.user.settings };
+      }
       saveData(items);
       saveSettings(settings);
+      applyTheme(settings.theme);
       render(items, settings, $("#search").value.trim());
     } catch {
       setAuthUI("Signup failed", { error: true });
